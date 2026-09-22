@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, CircleCheck, Clock3, FileSpreadsheet, FileText, ImagePlus, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, MapPin, Menu, QrCode, ScanLine, Search, Settings2, ShieldCheck, Smartphone, Sparkles, Ticket, Upload, Users, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import QrScanner from 'qr-scanner';
+import { startCamera, cameraErrorMessage } from './camera';
 import './styles.css';
 
 type EventInfo = { title: string; date: string; time: string; location: string; description: string };
@@ -84,13 +85,37 @@ function Stat({ label, value, icon: Icon, foot, green = false }: { label: string
 
 function Scanner() {
   const video = useRef<HTMLVideoElement>(null); const scanner = useRef<QrScanner | null>(null); const mounted = useRef(true); const fileRef = useRef<HTMLInputElement>(null);
+  const startRequest = useRef<AbortController | null>(null); const [cameraKey, setCameraKey] = useState(0);
   const [active, setActive] = useState(false); const [starting, setStarting] = useState(false); const [busy, setBusy] = useState(false); const [phone, setPhone] = useState(''); const [error, setError] = useState(''); const [person, setPerson] = useState<Person | null>(null);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; scanner.current?.destroy(); }; }, []);
-  function stop() { scanner.current?.stop(); setActive(false); }
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; disposeCamera(); }; }, []);
+  function disposeCamera() {
+    if (startRequest.current) startRequest.current.abort();
+    else scanner.current?.destroy();
+    startRequest.current = null; scanner.current = null;
+  }
+  function stop() { disposeCamera(); setActive(false); setStarting(false); setCameraKey(key => key + 1); }
   async function lookup(body: { code: string } | { phone: string }) { stop(); setBusy(true); setError(''); try { const result = await post<Person>('/admin/lookup', body); if (mounted.current) setPerson(result); } catch (e) { if (mounted.current) setError((e as Error).message); } finally { if (mounted.current) setBusy(false); } }
-  async function start() { setError(''); setStarting(true); try { if (!window.isSecureContext) throw new Error('手机相机需要 HTTPS 地址。当前可使用“从相册识别”或手机号核验。'); if (!scanner.current) scanner.current = new QrScanner(video.current!, result => { scanner.current?.stop(); void lookup({ code: result.data }); }, { preferredCamera: 'environment', highlightScanRegion: true, maxScansPerSecond: 3 }); await scanner.current.start(); if (!mounted.current) return scanner.current.destroy(); setActive(true); } catch (e) { if (mounted.current) setError(e instanceof Error && e.message.startsWith('手机') ? e.message : '无法打开相机。请允许相机权限，或使用相册识别、手机号核验。'); } finally { if (mounted.current) setStarting(false); } }
+  async function start() {
+    if (startRequest.current || scanner.current) return;
+    const request = new AbortController(); startRequest.current = request;
+    setError(''); setStarting(true);
+    try {
+      if (!window.isSecureContext) throw new Error('手机相机需要 HTTPS 地址。当前可使用“从相册识别”或手机号核验。');
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持网页相机，请更新浏览器，或使用相册识别、手机号核验。');
+      const current = new QrScanner(video.current!, result => { if (mounted.current && scanner.current === current) void lookup({ code: result.data }); }, { preferredCamera: 'environment', highlightScanRegion: true, maxScansPerSecond: 3 });
+      scanner.current = current;
+      await startCamera(current, request.signal);
+      if (mounted.current && startRequest.current === request && !request.signal.aborted) setActive(true);
+    } catch (e) {
+      if (mounted.current && startRequest.current === request && !request.signal.aborted) {
+        scanner.current = null; setCameraKey(key => key + 1); setActive(false); setError(cameraErrorMessage(e));
+      }
+    } finally {
+      if (startRequest.current === request) { startRequest.current = null; if (mounted.current) setStarting(false); }
+    }
+  }
   async function scanImage(file?: File) { if (!file) return; stop(); setBusy(true); setError(''); try { const result = await QrScanner.scanImage(file, { returnDetailedScanResult: true }); await lookup({ code: result.data }); } catch { setError('图片中未识别到二维码，请上传清晰完整的入场码图片。'); } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; } }
-  return <><PageTitle eyebrow="A WARM WELCOME STARTS HERE" title="扫码，欢迎每一位来宾" description="扫描入场二维码，核对身份信息后完成签到。"/><div className="scan-layout"><section className="scanner-panel panel"><div className="panel-title"><h2><ScanLine size={19}/>扫码核验</h2><span className="soft-badge">后置摄像头优先</span></div><div className={`camera-viewport ${active ? 'camera-active' : ''}`}><video ref={video} muted playsInline aria-label="扫码相机画面"/><div className="scan-frame"><i/><i/><i/><i/>{!active && <QrCode size={76} strokeWidth={1}/>}</div>{!active && <div className="camera-hint"><strong>准备好迎接来宾了吗？</strong><p>开启相机，将入场码放入扫描框</p></div>}{active && <div className="scan-moving-line"/>}<span className="camera-privacy"><ShieldCheck size={13}/>仅用于识别二维码，不录制视频</span></div><ErrorMessage text={error}/><div className="scanner-actions"><button className="button primary" onClick={active ? stop : start} disabled={starting || busy}>{starting || busy ? <Spinner/> : <Camera size={18}/>} {active ? '关闭相机' : starting ? '正在开启相机' : '开启相机扫码'}</button><button className="button secondary" onClick={() => fileRef.current?.click()} disabled={busy || starting}><ImagePlus size={18}/>从相册识别</button><input ref={fileRef} className="visually-hidden" type="file" accept="image/*" aria-label="上传二维码图片" onChange={e => scanImage(e.target.files?.[0])}/></div></section><div className="scan-side"><section className="panel manual-panel"><div className="quick-icon green"><Smartphone size={23}/></div><h2>没有二维码？也能签到</h2><p>输入来宾的报名手机号，查找登记资料。</p><form onSubmit={e => { e.preventDefault(); void lookup({ phone }); }}><label htmlFor="lookup-phone">报名手机号</label><input id="lookup-phone" type="tel" inputMode="numeric" placeholder="请输入 11 位手机号" maxLength={11} value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} pattern="1[3-9][0-9]{9}" required/><button className="button secondary full" disabled={busy}><Search size={17}/>查找参会者</button></form></section><section className="scan-guide"><span className="eyebrow">三步完成现场签到</span>{['扫描来宾的入场二维码', '核对姓名、单位等登记资料', '点击确认，完成签到'].map((text, i) => <div key={text}><span>0{i + 1}</span><p>{text}</p></div>)}</section></div></div>{person && <PersonDetail person={person} onClose={() => setPerson(null)} onCheckin={setPerson}/>}</>;
+  return <><PageTitle eyebrow="A WARM WELCOME STARTS HERE" title="扫码，欢迎每一位来宾" description="扫描入场二维码，核对身份信息后完成签到。"/><div className="scan-layout"><section className="scanner-panel panel"><div className="panel-title"><h2><ScanLine size={19}/>扫码核验</h2><span className="soft-badge">后置摄像头优先</span></div><div className={`camera-viewport ${active ? 'camera-active' : ''}`}><video key={cameraKey} ref={video} autoPlay muted playsInline aria-label="扫码相机画面"/><div className="scan-frame"><i/><i/><i/><i/>{!active && <QrCode size={76} strokeWidth={1}/>}</div>{!active && <div className="camera-hint"><strong>{starting ? '正在开启相机' : '准备好迎接来宾了吗？'}</strong><p>{starting ? '请允许浏览器使用相机，等待时也可取消' : '开启相机，将入场码放入扫描框'}</p></div>}{active && <div className="scan-moving-line"/>}<span className="camera-privacy"><ShieldCheck size={13}/>仅用于识别二维码，不录制视频</span></div><ErrorMessage text={error}/><div className="scanner-actions"><button className="button primary" onClick={active || starting ? stop : start} disabled={busy}>{starting || busy ? <Spinner/> : <Camera size={18}/>} {active ? '关闭相机' : starting ? '取消开启相机' : '开启相机扫码'}</button><button className="button secondary" onClick={() => { stop(); fileRef.current?.click(); }} disabled={busy}><ImagePlus size={18}/>从相册识别</button><input ref={fileRef} className="visually-hidden" type="file" accept="image/*" aria-label="上传二维码图片" onChange={e => scanImage(e.target.files?.[0])}/></div></section><div className="scan-side"><section className="panel manual-panel"><div className="quick-icon green"><Smartphone size={23}/></div><h2>没有二维码？也能签到</h2><p>输入来宾的报名手机号，查找登记资料。</p><form onSubmit={e => { e.preventDefault(); void lookup({ phone }); }}><label htmlFor="lookup-phone">报名手机号</label><input id="lookup-phone" type="tel" inputMode="numeric" placeholder="请输入 11 位手机号" maxLength={11} value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} pattern="1[3-9][0-9]{9}" required/><button className="button secondary full" disabled={busy}><Search size={17}/>查找参会者</button></form></section><section className="scan-guide"><span className="eyebrow">三步完成现场签到</span>{['扫描来宾的入场二维码', '核对姓名、单位等登记资料', '点击确认，完成签到'].map((text, i) => <div key={text}><span>0{i + 1}</span><p>{text}</p></div>)}</section></div></div>{person && <PersonDetail person={person} onClose={() => setPerson(null)} onCheckin={setPerson}/>}</>;
 }
 function PageTitle({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) { return <div className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}<span className="orange-dot">.</span></h1><p>{description}</p></div>{action}</div>; }
 
