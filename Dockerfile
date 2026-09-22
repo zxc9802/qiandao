@@ -1,9 +1,9 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 COPY . .
-RUN npm test && npm run build
+RUN env -u ADMIN_PASSWORD NODE_ENV=test npm test && npm run build
 
 FROM node:24-bookworm-slim
 WORKDIR /app

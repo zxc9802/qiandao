@@ -74,6 +74,14 @@ docker run -d --name meetin -p 3001:3001 -e ADMIN_PASSWORD -v meetin-data:/app/d
 
 运行容器前，通过本机环境安全设置 `ADMIN_PASSWORD`，不要把密码写进 Dockerfile 或版本库。Zeabur 部署选择仓库的 `main` 分支，使用根目录 Dockerfile，添加 `/app/data` 持久卷，并在环境变量中设置 `ADMIN_PASSWORD`、`TRUST_PROXY=1` 和实际 HTTPS 地址对应的 `PUBLIC_ORIGIN`。
 
+### Zeabur 镜像部署（当前使用）
+
+当前服务通过 GitHub Container Registry 拉取镜像。每次推送到 `main`，GitHub Actions 会执行 Docker 构建中的测试并发布 `ghcr.io/zxc9802/qiandao:<完整提交 SHA>` 和 `latest`。镜像仅包含应用代码和运行依赖，不包含名单、数据库或密码。
+
+在 Zeabur 的“设置 → 来源 → Docker 镜像”中填写 `ghcr.io/zxc9802/qiandao`，标签填写已成功构建的完整提交 SHA，端口使用 `3001` 或平台注入的 `PORT`，保留 `/app/data` 持久卷及上述环境变量。当前使用固定版本标签；之后更新时，先等待 Actions 成功，再将 Zeabur 镜像标签改为新提交 SHA 并保存。GitHub 推送会自动发布镜像，不会直接切换线上运行版本。
+
+线上参会者入口：<https://qiandao-zxc9802.zeabur.app/>，主办方后台：<https://qiandao-zxc9802.zeabur.app/admin>。后台无需用户名，使用部署时设置的管理密码。
+
 ## 验证
 
 ```bash
