@@ -1,0 +1,52 @@
+{
+  "name": "meet-in-checkin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"tsx watch server/index.ts\" \"vite --host 0.0.0.0\"",
+    "build": "tsc -b && vite build",
+    "start": "tsx server/index.ts",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "csv-parse": "^7.0.2",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "lucide-react": "^0.468.0",
+    "mammoth": "^1.10.0",
+    "multer": "^2.0.2",
+    "pdfjs-dist": "^6.3.289",
+    "qr-scanner": "^1.4.2",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "read-excel-file": "^9.3.10",
+    "tsx": "^4.20.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.5.2",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.3",
+    "concurrently": "^9.2.1",
+    "docx": "^9.5.1",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.2",
+    "pdfkit": "^0.17.2",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.7"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  }
+}

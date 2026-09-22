@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+test-results
+.git
+.env
+*.tsbuildinfo
+outputs
+.DS_Store
+.env.*
