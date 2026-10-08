@@ -12,6 +12,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev && mkdir -p /app/data && chown node:node /app/data
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
+COPY --from=build /app/shared ./shared
 USER node
 EXPOSE 3001
 CMD ["npm", "start"]

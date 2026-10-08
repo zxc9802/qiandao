@@ -9,7 +9,7 @@ import JSZip from 'jszip';
 import { Document, Packer, Paragraph, Table, TableRow, TableCell } from 'docx';
 import PDFDocument from 'pdfkit';
 import { parseImport } from '../server/importer.ts';
-import { createApp } from '../server/app.ts';
+import { createTestApp as createApp } from './database-helper.ts';
 
 const headers = ['手机号', '姓名', '公司', '身份', '备注'];
 const values = ['13800138000', '张晓', '相遇科技', '嘉宾', '<script>alert(1)</script>'];
@@ -26,7 +26,7 @@ async function pdfFixture() {
 }
 
 test('XLSX: preserve custom columns, numeric phones, report invalid and duplicate rows', async () => {
-  const input = await xlsxFixture([headers, values, ['13800138000', 'Duplicate'], ['invalid', 'Bad'], ['13900139000', '李然', '未来设计']]);
+  const input = await xlsxFixture([headers, values, ['13800138000', '张晓'], ['invalid', 'Bad'], ['13900139000', '李然', '未来设计']]);
   const result = await parseImport(input, '名单.xlsx');
   assert.equal(result.records.length, 2); assert.equal(result.records[0].fields.姓名, '张晓'); assert.equal(result.records[0].fields.备注, values[4]); assert.equal(result.warnings.length, 2);
   const book = new ExcelJS.Workbook(); book.addWorksheet('Sheet1').addRows([headers, [13800138000, '数字手机号']]);
@@ -73,16 +73,16 @@ test('Production bootstrap: require a password before exposure and never overwri
   const original = { NODE_ENV: process.env.NODE_ENV, ADMIN_PASSWORD: process.env.ADMIN_PASSWORD };
   try {
     process.env.NODE_ENV = 'production'; delete process.env.ADMIN_PASSWORD;
-    assert.throws(() => createApp(dir), /ADMIN_PASSWORD/);
+    await assert.rejects(() => createApp(dir), /ADMIN_PASSWORD/);
     process.env.ADMIN_PASSWORD = 'short';
-    assert.throws(() => createApp(dir), /8–128/);
+    await assert.rejects(() => createApp(dir), /8–128/);
     process.env.ADMIN_PASSWORD = 'bootstrap-test-password';
-    let service = createApp(dir);
-    const stored = service.db.prepare("SELECT value FROM settings WHERE key = 'password'").get()!.value;
+    let service = await createApp(dir);
+    const stored = (await service.db.query("SELECT value FROM settings WHERE key = 'password'")).rows[0].value;
     assert.notEqual(stored, process.env.ADMIN_PASSWORD);
-    service.db.close();
+    await service.db.close();
     process.env.ADMIN_PASSWORD = 'different-bootstrap-password';
-    service = createApp(dir);
+    service = await createApp(dir);
     const server = service.app.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     try {
@@ -91,8 +91,8 @@ test('Production bootstrap: require a password before exposure and never overwri
       const login = (password: string) => fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
       assert.equal((await login('bootstrap-test-password')).status, 200);
       assert.equal((await login('different-bootstrap-password')).status, 401);
-      assert.equal(service.db.prepare("SELECT value FROM settings WHERE key = 'password'").get()!.value, stored);
-    } finally { await new Promise<void>(resolve => server.close(() => resolve())); service.db.close(); }
+      assert.equal((await service.db.query("SELECT value FROM settings WHERE key = 'password'")).rows[0].value, stored);
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); await service.db.close(); }
   } finally {
     for (const [key, value] of Object.entries(original)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     rmSync(dir, { recursive: true, force: true });
@@ -100,7 +100,7 @@ test('Production bootstrap: require a password before exposure and never overwri
 });
 
 test('End-to-end: auth → file preview → commit → public ticket → private lookup → idempotent checkin → persistence', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'meet-in-test-')); let service = createApp(dir); let server = service.app.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const dir = mkdtempSync(path.join(tmpdir(), 'meet-in-test-')); let service = await createApp(dir); let server = service.app.listen(0, '127.0.0.1'); await once(server, 'listening');
   let base = `http://127.0.0.1:${(server.address() as { port: number }).port}`; let cookie = '';
   async function request(url: string, method = 'GET', body?: unknown, authenticated = true) {
     const res = await fetch(base + '/api' + url, { method, headers: { ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(authenticated && cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body) });
@@ -121,18 +121,18 @@ test('End-to-end: auth → file preview → commit → public ticket → private
     const lookup = await request('/admin/lookup', 'POST', { code: ticket.data.code }); assert.equal(lookup.data.fields.姓名, values[1]); assert.equal(lookup.data.token, undefined);
     const checked = await request('/admin/checkin', 'POST', { id: lookup.data.id }); assert.equal(checked.data.alreadyChecked, false); assert.ok(checked.data.person.checked_at);
     const again = await request('/admin/checkin', 'POST', { id: lookup.data.id }); assert.equal(again.data.alreadyChecked, true); assert.equal(again.data.person.checked_at, checked.data.person.checked_at);
-    const update = await preview(Buffer.from('手机号,姓名,公司\n13800138000,更新姓名,新公司'), 'update.csv'); assert.equal(update.data.updated, 1); await request('/admin/import/confirm', 'POST', { id: update.data.id });
-    const stable = await request('/admin/lookup', 'POST', { code: ticket.data.code }); assert.equal(stable.data.fields.姓名, '更新姓名'); assert.equal(stable.data.checked_at, checked.data.person.checked_at);
+    const update = await preview(Buffer.from('手机号,姓名,公司\n13800138000,张晓,新公司'), 'update.csv'); assert.equal(update.data.updated, 1); await request('/admin/import/confirm', 'POST', { id: update.data.id });
+    const stable = await request('/admin/lookup', 'POST', { code: ticket.data.code }); assert.equal(stable.data.fields.姓名, values[1]); assert.equal(stable.data.checked_at, checked.data.person.checked_at);
     const word = await preview(await docxFixture(), 'word.docx'); assert.equal(word.res.status, 200);
     const pdf = await preview(await pdfFixture(), 'pdf.pdf'); assert.equal(pdf.data.added, 1); await request('/admin/import/confirm', 'POST', { id: pdf.data.id });
     assert.equal((await request('/admin/people?status=checked')).data.total, 1); assert.equal((await request('/admin/people?status=pending')).data.total, 1); assert.equal((await request('/admin/people?q=13900139000')).data.total, 1); assert.equal((await request('/admin/dashboard')).data.stats.total, 2);
     assert.equal((await request('/public/ticket', 'POST', { phone: '18800009999' })).res.status, 404);
     const hostile = await fetch(base + '/api/admin/checkin', { method: 'POST', headers: { Cookie: cookie, Origin: 'https://hostile.example', 'Content-Type': 'application/json' }, body: JSON.stringify({ id: lookup.data.id }) }); assert.equal(hostile.status, 403);
-    const csv = await fetch(base + '/api/admin/people/export', { headers: { Cookie: cookie } }); assert.equal(csv.status, 200); assert.match(await csv.text(), /更新姓名/);
+    const csv = await fetch(base + '/api/admin/people/export', { headers: { Cookie: cookie } }); assert.equal(csv.status, 200); assert.match(await csv.text(), /新公司/);
     const event = { title: '测试活动', date: '2026-10-01', time: '14:00', location: '测试会场', description: '欢迎' }; assert.equal((await request('/admin/event', 'PUT', event)).res.status, 200);
-    await new Promise<void>(resolve => server.close(() => resolve())); service.db.close();
-    service = createApp(dir); server = service.app.listen(0, '127.0.0.1'); await once(server, 'listening'); base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    await new Promise<void>(resolve => server.close(() => resolve())); await service.db.close();
+    service = await createApp(dir); server = service.app.listen(0, '127.0.0.1'); await once(server, 'listening'); base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     assert.equal((await request('/admin/dashboard')).data.stats.checked, 1); assert.equal((await request('/public/event')).data.title, '测试活动'); assert.equal((await request('/public/ticket', 'POST', { phone: values[0] })).data.code, ticket.data.code);
     await request('/auth/logout', 'POST', {}); assert.equal((await request('/admin/people')).res.status, 401); assert.equal((await request('/auth/login', 'POST', { password: 'wrong' })).res.status, 401); assert.equal((await request('/auth/login', 'POST', { password: 'test-password-2026' })).res.status, 200);
-  } finally { await new Promise<void>(resolve => server.close(() => resolve())); service.db.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); await service.db.close(); rmSync(dir, { recursive: true, force: true }); }
 });

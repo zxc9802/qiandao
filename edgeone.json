@@ -1,0 +1,16 @@
+{
+  "name": "meetin-checkin",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "nodeVersion": "24.5.0",
+  "rewrites": [
+    { "source": "/admin", "destination": "/index.html" }
+  ],
+  "cloudFunctions": {
+    "nodejs": {
+      "maxDuration": 120,
+      "externalNodeModules": ["pdfjs-dist", "@napi-rs/canvas"]
+    }
+  }
+}

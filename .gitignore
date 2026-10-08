@@ -7,3 +7,7 @@ test-results/
 outputs/
 .DS_Store
 .env.*
+
+# 云托管部署暂存目录
+.deploy/
+deploy-args.json

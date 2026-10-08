@@ -3,7 +3,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { createApp } from './app.ts';
 
-const { app } = createApp(process.env.DATA_DIR || path.resolve('data'));
+const { app } = await createApp(process.env.DATA_DIR || path.resolve('data'));
 const dist = path.resolve('dist');
 if (existsSync(dist)) {
   app.use(express.static(dist));

@@ -4,12 +4,12 @@ import mammoth from 'mammoth';
 import { load } from 'cheerio';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import path from 'node:path';
+import { normalizePhone, validPhone, registrationName, registrationKey } from '../shared/registration.ts';
+export { normalizePhone, validPhone } from '../shared/registration.ts';
 
 export type PersonInput = { phone: string; fields: Record<string, string> };
 export type ImportPreview = { records: PersonInput[]; warnings: string[] };
-export const normalizePhone = (value: unknown) => String(value ?? '').trim().replace(/^\+?86[ -]?/, '').replace(/[\s()-]/g, '');
-export const validPhone = (value: string) => /^1[3-9]\d{9}$/.test(value);
-const phonePattern = /(?<!\d)(?:\+?86[ -]?)?1[3-9]\d{9}(?!\d)/g;
+const phonePattern = /(?<!\d)(?:\+?86[ -]?|0086)?(?:1[3-9]\d{9}|0\d{2,3}[ -]?[1-9]\d{6,7})(?!\d)/g;
 
 function readRows(rows: string[][], label: string, result: ImportPreview) {
   const populated = rows.filter(row => row.some(cell => cell.trim()));
@@ -24,7 +24,7 @@ function readRows(rows: string[][], label: string, result: ImportPreview) {
     const row = populated[i];
     const phone = normalizePhone(row[index]);
     if (!validPhone(phone)) {
-      result.warnings.push(`${label}第 ${i + 1} 行：手机号无效，已跳过。`);
+      result.warnings.push(`${label}第 ${i + 1} 行：联系电话无效，已跳过。`);
       continue;
     }
     result.records.push({ phone, fields: Object.fromEntries(row.flatMap((value, j) => j !== index && value.trim() ? [[headers[j] || `字段${j + 1}`, value.trim()]] : [])) });
@@ -57,13 +57,13 @@ function readText(text: string, label: string, result: ImportPreview) {
     const phones = [...line.matchAll(phonePattern)];
     if (phones.length > 1) {
       finish(); current = null;
-      result.warnings.push(`${label}有一行包含多个手机号，无法可靠对应，已跳过：${line.slice(0, 60)}`);
+      result.warnings.push(`${label}有一行包含多个电话，无法可靠对应，已跳过：${line.slice(0, 60)}`);
     } else if (phones.length === 1) {
       finish(); current = { phone: normalizePhone(phones[0][0]), lines: [line] };
     } else if (current) current.lines.push(line);
   }
   finish();
-  if (result.records.length > countBefore) result.warnings.push(`${label}按“手机号开头的一段资料”识别，请在预览中核对每个人的信息。`);
+  if (result.records.length > countBefore) result.warnings.push(`${label}按“电话开头的一段资料”识别，请在预览中核对每个人的信息。`);
 }
 
 export async function parseImport(buffer: Buffer, filename: string): Promise<ImportPreview> {
@@ -114,13 +114,19 @@ export async function parseImport(buffer: Buffer, filename: string): Promise<Imp
   } else {
     throw new Error('请上传 .xlsx、.csv、.docx 或文字版 .pdf。旧版 .xls / .doc 请先另存为新版格式。');
   }
+  const counts = new Map<string, number>();
+  for (const record of result.records) counts.set(record.phone, (counts.get(record.phone) || 0) + 1);
   const unique = new Map<string, PersonInput>();
   for (const record of result.records) {
-    if (unique.has(record.phone)) result.warnings.push(`手机号 ${record.phone} 在文件中重复，保留首次出现的资料。`);
-    else unique.set(record.phone, record);
+    const name = registrationName(record.fields);
+    if (counts.get(record.phone)! > 1 && !name) throw new Error(`电话 ${record.phone} 登记了多人，请为每个人填写“姓名”列后重新上传。`);
+    if (name.length > 100) throw new Error(`电话 ${record.phone} 的姓名超过 100 字，请缩短后重新上传。`);
+    const key = registrationKey(record.phone, name);
+    if (unique.has(key)) result.warnings.push(`电话 ${record.phone}${name ? `、姓名 ${name}` : '（未填写姓名）'} 在文件中重复，保留首次出现的资料。同一电话同名人员请在姓名中添加区分标记。`);
+    else unique.set(key, record);
   }
   result.records = [...unique.values()];
   if (result.records.length > 10000) throw new Error('每次最多导入 10,000 人，请拆分文件。');
-  if (!result.records.length) throw new Error('未找到有效手机号。表格请将手机号放在第一列；正文请按“手机号 + 个人资料”分段。扫描件 PDF 请先转成文字版或 Excel。');
+  if (!result.records.length) throw new Error('未找到有效联系电话。表格请将电话放在第一列；正文请按“电话 + 个人资料”分段。扫描件 PDF 请先转成文字版或 Excel。');
   return result;
 }

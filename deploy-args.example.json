@@ -1,0 +1,17 @@
+{
+  "_说明": "复制成 deploy-args.json 后填入真实值再执行部署；deploy-args.json 已在 .gitignore 中，不会进入版本库。",
+  "_部署命令": "npx mcporter call cloudbase.manageCloudRun --config ./mcporter.json --args \"$(cat deploy-args.json)\" --output json",
+  "action": "deploy",
+  "serverName": "meetin-checkin",
+  "targetPath": "<项目绝对路径>/.deploy",
+  "serverType": "container",
+  "serverConfig": {
+    "OpenAccessTypes": ["PUBLIC"],
+    "Cpu": 0.5,
+    "Mem": 1,
+    "MinNum": 1,
+    "MaxNum": 2,
+    "Port": 3001,
+    "EnvParams": "{\"NODE_ENV\":\"production\",\"PORT\":\"3001\",\"ADMIN_PASSWORD\":\"<后台管理密码>\",\"CLOUDBASE_ENV_ID\":\"<环境ID>\",\"CLOUDBASE_API_KEY\":\"<API Key>\",\"TRUST_PROXY\":\"1\",\"DATA_DIR\":\"/app/data\",\"NODE_OPTIONS\":\"--no-warnings\",\"APP_REVISION\":\"<部署标记>\"}"
+  }
+}

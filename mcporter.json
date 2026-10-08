@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "cloudbase": {
+      "command": "npx",
+      "args": ["-y", "@cloudbase/cloudbase-mcp@latest"],
+      "description": "CloudBase MCP（云托管源码部署要求其工作目录为项目根，故本文件必须位于项目根目录）"
+    }
+  }
+}
